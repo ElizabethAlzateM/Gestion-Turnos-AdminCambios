@@ -329,13 +329,20 @@ with tab_proyeccion:
   )
 
   hoy = datetime.date.today()
-  semanas_transcurridas = max(0, (hoy - FECHA_INICIO).days // 7)
+
+  # Calcula el viernes correspondiente a la semana actual
+  dias_hasta_viernes = (4 - hoy.weekday()) % 7
+  viernes_esta_semana = hoy + datetime.timedelta(days=dias_hasta_viernes)
+
+  # Determina la posición exacta del viernes actual en la lista
+  semanas_transcurridas = max(0, (viernes_esta_semana - FECHA_INICIO).days // 7)
 
   datos_calendario = generar_calendario_equitativo(
       FECHA_INICIO, max(semanas, semanas_transcurridas + 10)
   )
 
   idx_actual = semanas_transcurridas
+
   turnos_a_mostrar = datos_calendario[
       max(0, idx_actual - 1) : idx_actual + 3
   ]
