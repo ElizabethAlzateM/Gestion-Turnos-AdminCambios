@@ -38,7 +38,6 @@ VIERNES_FESTIVOS = { #Agregar los festivos del año
     datetime.date(2027, 12, 24),
     datetime.date(2027, 12, 31),
     datetime.date(2028, 4, 14)
-
 }
 
 MESES_ESPANOL = {
@@ -281,6 +280,12 @@ else:
 if st.session_state["usuario_logueado"] is not None:
   st.sidebar.markdown("---")
   st.sidebar.header("📝 Registrar Novedad")
+
+  # Mostrar confirmación persistente tras guardar
+  if "msj_novedad_guardada" in st.session_state:
+    st.sidebar.success("✅ Novedad registrada")
+    del st.session_state["msj_novedad_guardada"]
+
   usuario_sel = st.sidebar.selectbox("Compañero:", USUARIOS_INICIALES)
   fecha_inicio_sel = st.sidebar.date_input(
       "Fecha Inicio Novedad:", datetime.date(2026, 8, 21)
@@ -297,7 +302,7 @@ if st.session_state["usuario_logueado"] is not None:
           fecha_fin_sel,
           st.session_state["usuario_logueado"],
       )
-      st.sidebar.success("¡Registro guardado exitosamente!")
+      st.session_state["msj_novedad_guardada"] = True
       st.rerun()
     else:
       st.sidebar.error(
@@ -306,7 +311,7 @@ if st.session_state["usuario_logueado"] is not None:
 
 # --- CUERPO PRINCIPAL ---
 st.markdown(
-    '<div class="page-title">🔮 Rotación de Turnos - AdminCambios</div>',
+    '<div class="page-title">Rotación de Turnos - AdminCambios</div>',
     unsafe_allow_html=True,
 )
 st.markdown(
@@ -314,7 +319,6 @@ st.markdown(
     ' y control de novedades</div>',
     unsafe_allow_html=True,
 )
-st.markdown("---")
 
 tab_proyeccion, tab_auditoria = st.tabs(
     ["📅 Proyección de Calendario", "Bitácora de Auditorías"]
