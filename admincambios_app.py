@@ -252,9 +252,11 @@ if st.session_state["usuario_logueado"] is None:
 
   if rol_seleccionado == "Administrador":
     password_ingresado = st.sidebar.text_input(
-        "Contraseña de Admin:", type="password"
+        "Contraseña de Admin:", type="password", key="pwd_admin_input"
     )
-    nombre_admin = st.sidebar.text_input("Tu Nombre/Usuario:", value="")
+    nombre_admin = st.sidebar.text_input(
+        "Tu Nombre/Usuario:", value="", key="user_admin_input"
+    )
 
     if st.sidebar.button("Iniciar Sesión"):
       if (
