@@ -309,6 +309,17 @@ if st.session_state["usuario_logueado"] is not None:
           "Error: La fecha de inicio no puede ser mayor a la de fin."
       )
 
+# --- CRÉDITOS EN BARRA LATERAL ---
+with st.sidebar:
+    st.header("Información de la App")
+    st.markdown("""
+    **Desarrollado por:** Elizabeth Alzate M.
+    **Tecnologías:** Python | Pandas | Streamlit
+
+    *Esta herramienta fue creada por iniciativa personal para optimizar la gestión de novedades (vacaciones, incapacidades y festivos) y garantizar una rotación 100% justa.*
+    """)
+    st.divider()
+
 # --- CUERPO PRINCIPAL ---
 st.markdown(
     '<div class="page-title">Rotación de Turnos - AdminCambios</div>',
