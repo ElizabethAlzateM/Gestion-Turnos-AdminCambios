@@ -7,9 +7,8 @@ Original file is located at
     https://colab.research.google.com/drive/1TOvFpF6IN0yYvx8C73o2M0J8R8NILZzM
 """
 
-#!pip install streamlit pandas streamlit-gsheets
-!pip install streamlit
-!pip install st-gsheets-connection
+#!pip install streamlit
+#!pip install st-gsheets-connection
 import datetime
 import pandas as pd
 import streamlit as st
