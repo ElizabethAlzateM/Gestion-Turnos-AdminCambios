@@ -7,11 +7,13 @@ Original file is located at
     https://colab.research.google.com/drive/1TOvFpF6IN0yYvx8C73o2M0J8R8NILZzM
 """
 
-#!pip install streamlit pandas
+#!pip install streamlit pandas streamlit-gsheets
+!pip install streamlit
+!pip install st-gsheets-connection
 import datetime
-import os
 import pandas as pd
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
 # 1. CONSTANTES Y CONFIGURACIÓN
@@ -28,7 +30,7 @@ USUARIOS_INICIALES = [
 ]
 
 FECHA_INICIO = datetime.date(2026, 8, 21)
-VIERNES_FESTIVOS = { #Agregar los festivos del año
+VIERNES_FESTIVOS = {
     datetime.date(2026, 4, 3),
     datetime.date(2026, 5, 1),
     datetime.date(2026, 7, 7),
@@ -37,38 +39,59 @@ VIERNES_FESTIVOS = { #Agregar los festivos del año
     datetime.date(2027, 3, 26),
     datetime.date(2027, 12, 24),
     datetime.date(2027, 12, 31),
-    datetime.date(2028, 4, 14)
+    datetime.date(2028, 4, 14),
 }
 
 MESES_ESPANOL = {
-    1: "Enero",
-    2: "Febrero",
-    3: "Marzo",
-    4: "Abril",
-    5: "Mayo",
-    6: "Junio",
-    7: "Julio",
-    8: "Agosto",
-    9: "Septiembre",
-    10: "Octubre",
-    11: "Noviembre",
-    12: "Diciembre",
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
 }
 
-CSV_FILE = "novedades_auditoria.csv"
 PASSWORD_ADMIN = "Camb1osAdm1n*2026"
 
+# Conector nativo de Google Sheets
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 # ==========================================
-# 2. SISTEMA DE ARCHIVOS Y AUDITORÍA (CSV)
+# 2. SISTEMA DE BASE DE DATOS (GOOGLE SHEETS)
 # ==========================================
 def formatear_fecha_espanol(fecha_obj):
   mes = MESES_ESPANOL[fecha_obj.month]
   return f"{fecha_obj.day:02d}-{mes}-{fecha_obj.year}"
 
 
-def cargar_novedades_desde_csv():
-  if not os.path.exists(CSV_FILE):
+def cargar_novedades_desde_gsheets():
+  try:
+    df = conn.read(ttl=0)
+    if df is None or df.empty:
+      return {}
+
+    diccionario_novedades = {}
+    for _, row in df.dropna(how="all").iterrows():
+      try:
+        emp = str(row["Empleado"]).strip()
+        f_ini = datetime.datetime.strptime(
+            str(row["Fecha_Inicio"]), "%Y-%m-%d"
+        ).date()
+        f_fin = datetime.datetime.strptime(
+            str(row["Fecha_Fin"]), "%Y-%m-%d"
+        ).date()
+
+        if emp not in diccionario_novedades:
+          diccionario_novedades[emp] = []
+        diccionario_novedades[emp].append((f_ini, f_fin))
+      except Exception:
+        continue
+    return diccionario_novedades
+  except Exception:
+    return {}
+
+
+def registrar_novedad_en_gsheets(empleado, f_inicio, f_fin, administrador):
+  try:
+    df = conn.read(ttl=0)
+  except Exception:
     df = pd.DataFrame(
         columns=[
             "ID_Novedad",
@@ -79,59 +102,53 @@ def cargar_novedades_desde_csv():
             "Fecha_Hora_Registro",
         ]
     )
-    df.to_csv(CSV_FILE, index=False, encoding="utf-8")
-    return {}
 
-  try:
-    df = pd.read_csv(CSV_FILE, encoding="utf-8")
-    diccionario_novedades = {}
-    for _, row in df.iterrows():
-      f_ini = datetime.datetime.strptime(
-          str(row["Fecha_Inicio"]), "%Y-%m-%d"
-      ).date()
-      f_fin = datetime.datetime.strptime(
-          str(row["Fecha_Fin"]), "%Y-%m-%d"
-      ).date()
-      diccionario_novedades[row["Empleado"]] = (f_ini, f_fin)
-    return diccionario_novedades
-  except Exception:
-    return {}
+  if df is None or df.empty:
+    df = pd.DataFrame(
+        columns=[
+            "ID_Novedad",
+            "Empleado",
+            "Fecha_Inicio",
+            "Fecha_Fin",
+            "Creado_Por",
+            "Fecha_Hora_Registro",
+        ]
+    )
+    nuevo_id = 1
+  else:
+    df = df.dropna(how="all")
+    nuevo_id = (
+        int(df["ID_Novedad"].max() + 1)
+        if not df.empty and "ID_Novedad" in df.columns
+        else 1
+    )
 
-
-def registrar_novedad_en_csv(empleado, f_inicio, f_fin, administrador):
-  df = (
-      pd.read_csv(CSV_FILE, encoding="utf-8")
-      if os.path.exists(CSV_FILE)
-      else pd.DataFrame()
-  )
-  nuevo_id = int(df["ID_Novedad"].max() + 1) if not df.empty else 1
   ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-  nueva_fila = {
+  nueva_fila = pd.DataFrame([{
       "ID_Novedad": nuevo_id,
       "Empleado": empleado,
       "Fecha_Inicio": f_inicio.strftime("%Y-%m-%d"),
       "Fecha_Fin": f_fin.strftime("%Y-%m-%d"),
       "Creado_Por": administrador,
       "Fecha_Hora_Registro": ahora,
-  }
+  }])
 
-  df = pd.concat([df, pd.DataFrame([nueva_fila])], ignore_index=True)
-  df.to_csv(CSV_FILE, index=False, encoding="utf-8")
+  df_actualizado = pd.concat([df, nueva_fila], ignore_index=True)
+  conn.update(data=df_actualizado)
 
 
 def eliminar_novedad_por_id(id_eliminar):
-  if os.path.exists(CSV_FILE):
-    df = pd.read_csv(CSV_FILE, encoding="utf-8")
+  df = conn.read(ttl=0)
+  if df is not None and not df.empty:
     df = df[df["ID_Novedad"] != int(id_eliminar)]
-    df.to_csv(CSV_FILE, index=False, encoding="utf-8")
+    conn.update(data=df)
 
 
 # ==========================================
 # 3. MOTOR LÓGICO DE CÁLCULO Y ROTACIÓN
 # ==========================================
 def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
-  situaciones_especiales = cargar_novedades_desde_csv()
+  situaciones_especiales = cargar_novedades_desde_gsheets()
   calendario = []
   cola_deudas = []
   idx_ruleta = 0
@@ -139,9 +156,9 @@ def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
 
   def esta_libre(nombre, fecha):
     if nombre in situaciones_especiales:
-      inicio, fin = situaciones_especiales[nombre]
-      if inicio <= fecha <= fin:
-        return False
+      for inicio, fin in situaciones_especiales[nombre]:
+        if inicio <= fecha <= fin:
+          return False
     return True
 
   for _ in range(semanas_a_calcular):
@@ -238,7 +255,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- GESTIÓN DE SESIÓN Y SIDEBAR ---
 if "usuario_logueado" not in st.session_state:
   st.session_state["usuario_logueado"] = None
 
@@ -276,12 +292,10 @@ else:
     st.sidebar.success("Sesión cerrada.")
     st.rerun()
 
-# FORMULARIO PARA REGISTRAR NOVEDADES (Solo si está autenticado como Admin)
 if st.session_state["usuario_logueado"] is not None:
   st.sidebar.markdown("---")
   st.sidebar.header("📝 Registrar Novedad")
 
-  # Mostrar confirmación persistente tras guardar
   if "msj_novedad_guardada" in st.session_state:
     st.sidebar.success("✅ Novedad registrada")
     del st.session_state["msj_novedad_guardada"]
@@ -296,7 +310,7 @@ if st.session_state["usuario_logueado"] is not None:
 
   if st.sidebar.button("💾 Guardar en Registro"):
     if fecha_inicio_sel <= fecha_fin_sel:
-      registrar_novedad_en_csv(
+      registrar_novedad_en_gsheets(
           usuario_sel,
           fecha_inicio_sel,
           fecha_fin_sel,
@@ -309,16 +323,8 @@ if st.session_state["usuario_logueado"] is not None:
           "Error: La fecha de inicio no puede ser mayor a la de fin."
       )
 
-# --- CRÉDITOS EN BARRA LATERAL ---
-with st.sidebar:
-    st.header("Información de la App")
-    st.markdown("""
-    **Desarrollado por:** Elizabeth Alzate M.
-    **Tecnologías:** Python | Pandas | Streamlit
-
-    *Esta herramienta fue creada por iniciativa personal para optimizar la gestión de novedades (vacaciones, incapacidades y festivos) y garantizar una rotación 100% justa.*
-    """)
-    st.divider()
+st.sidebar.markdown("---")
+st.sidebar.caption("🚀 Desarrollado por **[Tu Nombre]** con asistencia de IA")
 
 # --- CUERPO PRINCIPAL ---
 st.markdown(
@@ -336,20 +342,16 @@ tab_proyeccion, tab_auditoria = st.tabs(
 )
 
 with tab_proyeccion:
-  semanas = st.slider( #Modificar semanas para agregar más tiempo
+  semanas = st.slider(
       "Ajustar la cantidad de semanas a visualizar:",
       min_value=5,
-      max_value=72, #CAMBIAR AQUÍ (130 semanas abarcan hasta dic/2028)
-      value=20,     # Valor que se muestra por defecto al abrir
+      max_value=72,
+      value=20,
   )
 
   hoy = datetime.date.today()
-
-  # Calcula el viernes correspondiente a la semana actual
   dias_hasta_viernes = (4 - hoy.weekday()) % 7
   viernes_esta_semana = hoy + datetime.timedelta(days=dias_hasta_viernes)
-
-  # Determina la posición exacta del viernes actual en la lista
   semanas_transcurridas = max(0, (viernes_esta_semana - FECHA_INICIO).days // 7)
 
   datos_calendario = generar_calendario_equitativo(
@@ -357,7 +359,6 @@ with tab_proyeccion:
   )
 
   idx_actual = semanas_transcurridas
-
   turnos_a_mostrar = datos_calendario[
       max(0, idx_actual - 1) : idx_actual + 3
   ]
@@ -372,29 +373,31 @@ with tab_proyeccion:
 
   st.write("### 🎯 Próximos Turnos")
   n = len(turnos_a_mostrar)
-  if n == 4:
-    cols = st.columns([1, 1.1, 1, 1])
-  elif n == 3:
-    cols = st.columns([1, 1.2, 1])
-  else:
-    cols = st.columns(n if n > 0 else 1)
+  cols = (
+      st.columns([1, 1.1, 1, 1])
+      if n == 4
+      else st.columns([1, 1.2, 1])
+      if n == 3
+      else st.columns(n if n > 0 else 1)
+  )
 
   for i, turno in enumerate(turnos_a_mostrar):
     with cols[i]:
       clase = clases[i] if i < len(clases) else "card-next"
-      tarjeta_html = f"""
+      st.markdown(
+          f"""
             <div class="turno-card {clase}">
                 <div class="turno-label">{etiquetas[i]}</div>
                 <div class="turno-usuario">{turno['Usuario']}</div>
                 <div class="turno-fecha">Viernes {turno['Fecha']}</div>
             </div>
-            """
-      st.markdown(tarjeta_html, unsafe_allow_html=True)
+            """,
+          unsafe_allow_html=True,
+      )
 
   st.markdown(" ")
   st.write("#### 📊 Calendario de Disponibilidad Proyectado")
 
-  # ORDEN EXACTO SOLICITADO: Fecha | Semana | Usuario | Detalle
   tabla_display = [{
       "Fecha": r["Fecha"],
       "Semana": r["Semana"],
@@ -402,18 +405,20 @@ with tab_proyeccion:
       "Detalle": r["Detalle"],
   } for r in datos_calendario[:semanas]]
 
-  # hide_index=True oculta la columna numérica predeterminada (0, 1, 2...)
   st.dataframe(
       pd.DataFrame(tabla_display), use_container_width=True, hide_index=True
   )
 
 with tab_auditoria:
   st.write("#### 🕵️‍♂️ Historial del Sistema")
-  st.markdown("Registro oficial de transacciones físicas de novedades.")
+  st.markdown("Registro oficial guardado en la nube.")
 
-  if os.path.exists(CSV_FILE) and os.path.getsize(CSV_FILE) > 10:
-    df_logs = pd.read_csv(CSV_FILE, encoding="utf-8")
+  try:
+    df_logs = conn.read(ttl=0).dropna(how="all")
+  except Exception:
+    df_logs = pd.DataFrame()
 
+  if df_logs is not None and not df_logs.empty:
     if st.session_state["usuario_logueado"] is not None:
       st.markdown("---")
       st.write("⚙️ **Panel de Modificaciones de Auditoría**")
@@ -446,7 +451,4 @@ with tab_auditoria:
         df_logs.iloc[::-1], use_container_width=True, hide_index=True
     )
   else:
-    st.info(
-        "No hay novedades registradas físicamente en el sistema en este"
-        " momento."
-    )
+    st.info("No hay novedades registradas en el sistema en este momento.")
