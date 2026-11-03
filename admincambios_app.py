@@ -28,7 +28,7 @@ USUARIOS_INICIALES = [
     "Cristian David Requeme Gallego",
 ]
 
-# Fechas límite de permanencia activa (Histórico hasta el retiro)
+# Fechas límite de permanencia activa (se conservan en el histórico hasta la fecha de retiro)
 FECHAS_RETIRO = {
     "Brahian Andrés López Echeverri": datetime.date(2026, 9, 30),
     "Andrés Mauricio Vargas Osorio": datetime.date(2026, 10, 31),
@@ -48,23 +48,14 @@ VIERNES_FESTIVOS = {
 }
 
 MESES_ESPANOL = {
-    1: "Enero",
-    2: "Febrero",
-    3: "Marzo",
-    4: "Abril",
-    5: "Mayo",
-    6: "Junio",
-    7: "Julio",
-    8: "Agosto",
-    9: "Septiembre",
-    10: "Octubre",
-    11: "Noviembre",
-    12: "Diciembre",
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
 }
 
 PASSWORD_ADMIN = "Camb1osAdm1n*2026"
 
-# Conector a Google Sheets mediante Secrets
+# Conector nativo a Google Sheets mediante Secrets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 
@@ -72,189 +63,159 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # 2. SISTEMA DE BASE DE DATOS (GOOGLE SHEETS)
 # ==========================================
 def formatear_fecha_espanol(fecha_obj):
-  mes = MESES_ESPANOL[fecha_obj.month]
-  return f"{fecha_obj.day:02d}-{mes}-{fecha_obj.year}"
+    mes = MESES_ESPANOL[fecha_obj.month]
+    return f"{fecha_obj.day:02d}-{mes}-{fecha_obj.year}"
 
 
 def cargar_novedades_desde_gsheets():
-  try:
-    df = conn.read(ttl=0)
-    if df is None or df.empty:
-      return {}
+    try:
+        df = conn.read(ttl=0)
+        if df is None or df.empty:
+            return {}
 
-    diccionario_novedades = {}
-    for _, row in df.dropna(how="all").iterrows():
-      try:
-        emp = str(row["Empleado"]).strip()
-        f_ini = datetime.datetime.strptime(
-            str(row["Fecha_Inicio"]), "%Y-%m-%d"
-        ).date()
-        f_fin = datetime.datetime.strptime(
-            str(row["Fecha_Fin"]), "%Y-%m-%d"
-        ).date()
+        diccionario_novedades = {}
+        for _, row in df.dropna(how="all").iterrows():
+            try:
+                emp = str(row["Empleado"]).strip()
+                f_ini = datetime.datetime.strptime(str(row["Fecha_Inicio"]), "%Y-%m-%d").date()
+                f_fin = datetime.datetime.strptime(str(row["Fecha_Fin"]), "%Y-%m-%d").date()
 
-        if emp not in diccionario_novedades:
-          diccionario_novedades[emp] = []
-        diccionario_novedades[emp].append((f_ini, f_fin))
-      except Exception:
-        continue
-    return diccionario_novedades
-  except Exception:
-    return {}
+                if emp not in diccionario_novedades:
+                    diccionario_novedades[emp] = []
+                diccionario_novedades[emp].append((f_ini, f_fin))
+            except Exception:
+                continue
+        return diccionario_novedades
+    except Exception:
+        return {}
 
 
 def registrar_novedad_en_gsheets(empleado, f_inicio, f_fin, administrador):
-  try:
-    df = conn.read(ttl=0)
-  except Exception:
-    df = pd.DataFrame(
-        columns=[
-            "ID_Novedad",
-            "Empleado",
-            "Fecha_Inicio",
-            "Fecha_Fin",
-            "Creado_Por",
-            "Fecha_Hora_Registro",
-        ]
-    )
+    try:
+        df = conn.read(ttl=0)
+    except Exception:
+        df = pd.DataFrame(columns=["ID_Novedad", "Empleado", "Fecha_Inicio", "Fecha_Fin", "Creado_Por", "Fecha_Hora_Registro"])
 
-  if df is None or df.empty:
-    df = pd.DataFrame(
-        columns=[
-            "ID_Novedad",
-            "Empleado",
-            "Fecha_Inicio",
-            "Fecha_Fin",
-            "Creado_Por",
-            "Fecha_Hora_Registro",
-        ]
-    )
-    nuevo_id = 1
-  else:
-    df = df.dropna(how="all")
-    nuevo_id = (
-        int(df["ID_Novedad"].max() + 1)
-        if not df.empty and "ID_Novedad" in df.columns
-        else 1
-    )
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["ID_Novedad", "Empleado", "Fecha_Inicio", "Fecha_Fin", "Creado_Por", "Fecha_Hora_Registro"])
+        nuevo_id = 1
+    else:
+        df = df.dropna(how="all")
+        nuevo_id = int(df["ID_Novedad"].max() + 1) if not df.empty and "ID_Novedad" in df.columns else 1
 
-  ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-  nueva_fila = pd.DataFrame([{
-      "ID_Novedad": nuevo_id,
-      "Empleado": empleado,
-      "Fecha_Inicio": f_inicio.strftime("%Y-%m-%d"),
-      "Fecha_Fin": f_fin.strftime("%Y-%m-%d"),
-      "Creado_Por": administrador,
-      "Fecha_Hora_Registro": ahora,
-  }])
+    ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    nueva_fila = pd.DataFrame([{
+        "ID_Novedad": nuevo_id,
+        "Empleado": empleado,
+        "Fecha_Inicio": f_inicio.strftime("%Y-%m-%d"),
+        "Fecha_Fin": f_fin.strftime("%Y-%m-%d"),
+        "Creado_Por": administrador,
+        "Fecha_Hora_Registro": ahora,
+    }])
 
-  df_actualizado = pd.concat([df, nueva_fila], ignore_index=True)
-  conn.update(data=df_actualizado)
+    df_actualizado = pd.concat([df, nueva_fila], ignore_index=True)
+    conn.update(data=df_actualizado)
 
 
 def eliminar_novedad_por_id(id_eliminar):
-  df = conn.read(ttl=0)
-  if df is not None and not df.empty:
-    df = df[df["ID_Novedad"] != int(id_eliminar)]
-    conn.update(data=df)
+    df = conn.read(ttl=0)
+    if df is not None and not df.empty:
+        df = df[df["ID_Novedad"] != int(id_eliminar)]
+        conn.update(data=df)
 
 
 # ==========================================
-# 3. MOTOR LÓGICO Y CONTROL DE DISPONIBILIDAD
+# 3. MOTOR LÓGICO DE CÁLCULO Y ROTACIÓN
 # ==========================================
 def esta_activo(nombre, fecha):
-  """Verifica si un empleado pertenece al equipo activo en la fecha evaluada."""
-  if nombre in FECHAS_RETIRO:
-    if fecha > FECHAS_RETIRO[nombre]:
-      return False
-  return True
+    """Verifica si un empleado pertenece al equipo activo en la fecha evaluada."""
+    if nombre in FECHAS_RETIRO:
+        if fecha > FECHAS_RETIRO[nombre]:
+            return False
+    return True
 
 
 def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
-  situaciones_especiales = cargar_novedades_desde_gsheets()
-  calendario = []
-  cola_deudas = []
-  idx_ruleta = 0
-  viernes_actual = fecha_base
+    situaciones_especiales = cargar_novedades_desde_gsheets()
+    calendario = []
+    cola_deudas = []
+    idx_ruleta = 0
+    viernes_actual = fecha_base
 
-  def esta_libre(nombre, fecha):
-    if not esta_activo(nombre, fecha):
-      return False
-    if nombre in situaciones_especiales:
-      for inicio, fin in situaciones_especiales[nombre]:
-        if inicio <= fecha <= fin:
-          return False
-    return True
+    def esta_libre(nombre, fecha):
+        if not esta_activo(nombre, fecha):
+            return False
+        if nombre in situaciones_especiales:
+            for inicio, fin in situaciones_especiales[nombre]:
+                if inicio <= fecha <= fin:
+                    return False
+        return True
 
-  for _ in range(semanas_a_calcular):
-    num_semana = (
-        viernes_actual - datetime.date(viernes_actual.year, 1, 1)
-    ).days // 7 + 1
-    semana_str = f"Semana {num_semana}"
+    for _ in range(semanas_a_calcular):
+        num_semana = (viernes_actual - datetime.date(viernes_actual.year, 1, 1)).days // 7 + 1
+        semana_str = f"Semana {num_semana}"
 
-    # 1. Manejo de festivos
-    if viernes_actual in VIERNES_FESTIVOS:
-      calendario.append({
-          "Semana": semana_str,
-          "Fecha_Obj": viernes_actual,
-          "Fecha": formatear_fecha_espanol(viernes_actual),
-          "Usuario": "FESTIVO (Sin disponibilidad)",
-          "Detalle": "No laborable",
-      })
-      viernes_actual += datetime.timedelta(weeks=1)
-      continue
+        # 1. Manejo de festivos
+        if viernes_actual in VIERNES_FESTIVOS:
+            calendario.append({
+                "Semana": semana_str,
+                "Fecha_Obj": viernes_actual,
+                "Fecha": formatear_fecha_espanol(viernes_actual),
+                "Usuario": "FESTIVO (Sin disponibilidad)",
+                "Detalle": "No laborable",
+            })
+            viernes_actual += datetime.timedelta(weeks=1)
+            continue
 
-    usuario_asignado = None
-    motivo_asignacion = "Turno Normal"
+        usuario_asignado = None
+        motivo_asignacion = "Turno Normal"
 
-    # 2. Asignación a pendientes en cola (eliminando inactivos)
-    for u in list(cola_deudas):
-      if not esta_activo(u, viernes_actual):
-        cola_deudas.remove(u)
-        continue
-      if esta_libre(u, viernes_actual):
-        usuario_asignado = u
-        cola_deudas.remove(u)
-        motivo_asignacion = "Compensación de turno pendiente"
-        break
+        # 2. Atender cola de compensaciones (omitiendo empleados retirados)
+        for u in list(cola_deudas):
+            if not esta_activo(u, viernes_actual):
+                cola_deudas.remove(u)
+                continue
+            if esta_libre(u, viernes_actual):
+                usuario_asignado = u
+                cola_deudas.remove(u)
+                motivo_asignacion = "Compensación de turno pendiente"
+                break
 
-    # 3. Asignación por ruleta equitativa
-    if usuario_asignado is None:
-      intentos = 0
-      max_intentos = len(USUARIOS_INICIALES) * 2
-      while intentos < max_intentos:
-        candidato = USUARIOS_INICIALES[idx_ruleta]
-        idx_ruleta = (idx_ruleta + 1) % len(USUARIOS_INICIALES)
-        intentos += 1
+        # 3. Asignación por ruleta equitativa con limite seguro de iteración
+        if usuario_asignado is None:
+            intentos = 0
+            max_intentos = len(USUARIOS_INICIALES) * 2
+            while intentos < max_intentos:
+                candidato = USUARIOS_INICIALES[idx_ruleta]
+                idx_ruleta = (idx_ruleta + 1) % len(USUARIOS_INICIALES)
+                intentos += 1
 
-        if not esta_activo(candidato, viernes_actual):
-          continue
+                if not esta_activo(candidato, viernes_actual):
+                    continue
 
-        if esta_libre(candidato, viernes_actual):
-          usuario_asignado = candidato
-          break
-        else:
-          if candidato not in cola_deudas:
-            cola_deudas.append(candidato)
+                if esta_libre(candidato, viernes_actual):
+                    usuario_asignado = candidato
+                    break
+                else:
+                    if candidato not in cola_deudas:
+                        cola_deudas.append(candidato)
 
-    calendario.append({
-        "Semana": semana_str,
-        "Fecha_Obj": viernes_actual,
-        "Fecha": formatear_fecha_espanol(viernes_actual),
-        "Usuario": usuario_asignado if usuario_asignado else "Sin asignar",
-        "Detalle": motivo_asignacion,
-    })
-    viernes_actual += datetime.timedelta(weeks=1)
+        calendario.append({
+            "Semana": semana_str,
+            "Fecha_Obj": viernes_actual,
+            "Fecha": formatear_fecha_espanol(viernes_actual),
+            "Usuario": usuario_asignado if usuario_asignado else "Sin asignar",
+            "Detalle": motivo_asignacion,
+        })
+        viernes_actual += datetime.timedelta(weeks=1)
 
-  return calendario
+    return calendario
 
 
 # ==========================================
 # 4. INTERFAZ STREAMLIT Y ESTILOS VISUALES
 # ==========================================
-st.set_page_config(
-    page_title="Rotación de Turnos - AdminCambios", layout="wide"
-)
+st.set_page_config(page_title="Rotación de Turnos - AdminCambios", layout="wide")
 
 st.markdown(
     """
@@ -293,199 +254,158 @@ st.markdown(
 )
 
 if "usuario_logueado" not in st.session_state:
-  st.session_state["usuario_logueado"] = None
+    st.session_state["usuario_logueado"] = None
 
 st.sidebar.header("🔒 Control de Acceso")
 
 if st.session_state["usuario_logueado"] is None:
-  rol_seleccionado = st.sidebar.radio(
-      "Selecciona tu rol:", ["Espectador", "Administrador"]
-  )
+    rol_seleccionado = st.sidebar.radio("Selecciona tu rol:", ["Espectador", "Administrador"])
 
-  if rol_seleccionado == "Administrador":
-    password_ingresado = st.sidebar.text_input(
-        "Contraseña de Admin:", type="password", key="pwd_admin_input"
-    )
-    nombre_admin = st.sidebar.text_input(
-        "Tu Nombre/Usuario:", value="", key="user_admin_input"
-    )
+    if rol_seleccionado == "Administrador":
+        password_ingresado = st.sidebar.text_input("Contraseña de Admin:", type="password", key="pwd_admin_input")
+        nombre_admin = st.sidebar.text_input("Tu Nombre/Usuario:", value="", key="user_admin_input")
 
-    if st.sidebar.button("Iniciar Sesión"):
-      if (
-          password_ingresado == PASSWORD_ADMIN
-          and nombre_admin.strip() != ""
-      ):
-        st.session_state["usuario_logueado"] = nombre_admin
-        st.sidebar.success("Sesión iniciada correctamente.")
-        st.rerun()
-      else:
-        st.sidebar.error("Contraseña incorrecta o usuario vacío")
+        if st.sidebar.button("Iniciar Sesión"):
+            if password_ingresado == PASSWORD_ADMIN and nombre_admin.strip() != "":
+                st.session_state["usuario_logueado"] = nombre_admin
+                st.sidebar.success("Sesión iniciada correctamente.")
+                st.rerun()
+            else:
+                st.sidebar.error("Contraseña incorrecta o usuario vacío")
 else:
-  st.sidebar.success(
-      f"👤 Conectado como: {st.session_state['usuario_logueado']}"
-  )
-  if st.sidebar.button("⚠️ Cerrar Sesión", type="primary"):
-    st.session_state["usuario_logueado"] = None
-    st.sidebar.success("Sesión cerrada.")
-    st.rerun()
+    st.sidebar.success(f"👤 Conectado como: {st.session_state['usuario_logueado']}")
+    if st.sidebar.button("⚠️ Cerrar Sesión", type="primary"):
+        st.session_state["usuario_logueado"] = None
+        st.sidebar.success("Sesión cerrada.")
+        st.rerun()
 
 if st.session_state["usuario_logueado"] is not None:
-  st.sidebar.markdown("---")
-  st.sidebar.header("📝 Registrar Novedad")
+    st.sidebar.markdown("---")
+    st.sidebar.header("📝 Registrar Novedad")
 
-  if "msj_novedad_guardada" in st.session_state:
-    st.sidebar.success("✅ Novedad registrada")
-    del st.session_state["msj_novedad_guardada"]
+    if "msj_novedad_guardada" in st.session_state:
+        st.sidebar.success("✅ Novedad registrada")
+        del st.session_state["msj_novedad_guardada"]
 
-  usuario_sel = st.sidebar.selectbox("Compañero:", USUARIOS_INICIALES)
-  fecha_inicio_sel = st.sidebar.date_input(
-      "Fecha Inicio Novedad:", datetime.date(2026, 8, 21)
-  )
-  fecha_fin_sel = st.sidebar.date_input(
-      "Fecha Fin Novedad:", datetime.date(2026, 8, 21)
-  )
+    usuario_sel = st.sidebar.selectbox("Compañero:", USUARIOS_INICIALES)
+    fecha_inicio_sel = st.sidebar.date_input("Fecha Inicio Novedad:", datetime.date(2026, 8, 21))
+    fecha_fin_sel = st.sidebar.date_input("Fecha Fin Novedad:", datetime.date(2026, 8, 21))
 
-  if st.sidebar.button("💾 Guardar en Registro"):
-    if fecha_inicio_sel <= fecha_fin_sel:
-      registrar_novedad_en_gsheets(
-          usuario_sel,
-          fecha_inicio_sel,
-          fecha_fin_sel,
-          st.session_state["usuario_logueado"],
-      )
-      st.session_state["msj_novedad_guardada"] = True
-      st.rerun()
-    else:
-      st.sidebar.error(
-          "Error: La fecha de inicio no puede ser mayor a la de fin."
-      )
+    if st.sidebar.button("💾 Guardar en Registro"):
+        if fecha_inicio_sel <= fecha_fin_sel:
+            registrar_novedad_en_gsheets(
+                usuario_sel,
+                fecha_inicio_sel,
+                fecha_fin_sel,
+                st.session_state["usuario_logueado"],
+            )
+            st.session_state["msj_novedad_guardada"] = True
+            st.rerun()
+        else:
+            st.sidebar.error("Error: La fecha de inicio no puede ser mayor a la de fin.")
 
 st.sidebar.markdown("---")
 st.sidebar.caption("🚀 Desarrollado para el equipo de **AdminCambios**")
 
 # --- CUERPO PRINCIPAL ---
-st.markdown(
-    '<div class="page-title">Rotación de Turnos - AdminCambios</div>',
-    unsafe_allow_html=True,
-)
-st.markdown(
-    '<div class="page-sub">Plataforma para la planeación equitativa de turnos'
-    ' y control de novedades</div>',
-    unsafe_allow_html=True,
-)
+st.markdown('<div class="page-title">Rotación de Turnos - AdminCambios</div>', unsafe_allow_html=True)
+st.markdown('<div class="page-sub">Plataforma para la planeación equitativa de turnos y control de novedades</div>', unsafe_allow_html=True)
 
-tab_proyeccion, tab_auditoria = st.tabs(
-    ["📅 Proyección de Calendario", "Bitácora de Auditorías"]
-)
+tab_proyeccion, tab_auditoria = st.tabs(["📅 Proyección de Calendario", "Bitácora de Auditorías"])
 
 with tab_proyeccion:
-  semanas = st.slider(
-      "Ajustar la cantidad de semanas a visualizar:",
-      min_value=5,
-      max_value=72,
-      value=20,
-  )
+    semanas = st.slider("Ajustar la cantidad de semanas a visualizar:", min_value=5, max_value=72, value=20)
 
-  hoy = datetime.date.today()
-  dias_hasta_viernes = (4 - hoy.weekday()) % 7
-  viernes_esta_semana = hoy + datetime.timedelta(days=dias_hasta_viernes)
-  semanas_transcurridas = max(0, (viernes_esta_semana - FECHA_INICIO).days // 7)
+    hoy = datetime.date.today()
+    dias_hasta_viernes = (4 - hoy.weekday()) % 7
+    viernes_esta_semana = hoy + datetime.timedelta(days=dias_hasta_viernes)
+    semanas_transcurridas = max(0, (viernes_esta_semana - FECHA_INICIO).days // 7)
 
-  datos_calendario = generar_calendario_equitativo(
-      FECHA_INICIO, max(semanas, semanas_transcurridas + 10)
-  )
+    datos_calendario = generar_calendario_equitativo(FECHA_INICIO, max(semanas, semanas_transcurridas + 10))
 
-  idx_actual = semanas_transcurridas
-  turnos_a_mostrar = datos_calendario[
-      max(0, idx_actual - 1) : idx_actual + 3
-  ]
+    idx_actual = semanas_transcurridas
+    turnos_a_mostrar = datos_calendario[max(0, idx_actual - 1) : idx_actual + 3]
 
-  etiquetas = [
-      "⬅️ SEMANA ANTERIOR",
-      "🟢 ESTA SEMANA",
-      "➡️ PRÓXIMA SEMANA",
-      "🔜 SIGUIENTE SEMANA",
-  ]
-  clases = ["card-prev", "card-now", "card-next", "card-next2"]
+    etiquetas = [
+        "⬅️ SEMANA ANTERIOR",
+        "🟢 ESTA SEMANA",
+        "➡️ PRÓXIMA SEMANA",
+        "🔜 SIGUIENTE SEMANA",
+    ]
+    clases = ["card-prev", "card-now", "card-next", "card-next2"]
 
-  st.write("### 🎯 Próximos Turnos")
-  n = len(turnos_a_mostrar)
-  cols = (
-      st.columns([1, 1.1, 1, 1])
-      if n == 4
-      else st.columns([1, 1.2, 1])
-      if n == 3
-      else st.columns(n if n > 0 else 1)
-  )
+    st.write("### 🎯 Próximos Turnos")
+    n = len(turnos_a_mostrar)
+    cols = (
+        st.columns([1, 1.1, 1, 1])
+        if n == 4
+        else st.columns([1, 1.2, 1])
+        if n == 3
+        else st.columns(n if n > 0 else 1)
+    )
 
-  for i, turno in enumerate(turnos_a_mostrar):
-    with cols[i]:
-      clase = clases[i] if i < len(clases) else "card-next"
-      st.markdown(
-          f"""
+    for i, turno in enumerate(turnos_a_mostrar):
+        with cols[i]:
+            clase = clases[i] if i < len(clases) else "card-next"
+            st.markdown(
+                f"""
             <div class="turno-card {clase}">
                 <div class="turno-label">{etiquetas[i]}</div>
                 <div class="turno-usuario">{turno['Usuario']}</div>
                 <div class="turno-fecha">Viernes {turno['Fecha']}</div>
             </div>
             """,
-          unsafe_allow_html=True,
-      )
+                unsafe_allow_html=True,
+            )
 
-  st.markdown(" ")
-  st.write("#### 📊 Calendario de Disponibilidad Proyectado")
+    st.markdown(" ")
+    st.write("#### 📊 Calendario de Disponibilidad Proyectado")
 
-  tabla_display = [{
-      "Fecha": r["Fecha"],
-      "Semana": r["Semana"],
-      "Usuario": r["Usuario"],
-      "Detalle": r["Detalle"],
-  } for r in datos_calendario[:semanas]]
+    tabla_display = [{
+        "Fecha": r["Fecha"],
+        "Semana": r["Semana"],
+        "Usuario": r["Usuario"],
+        "Detalle": r["Detalle"],
+    } for r in datos_calendario[:semanas]]
 
-  st.dataframe(
-      pd.DataFrame(tabla_display), use_container_width=True, hide_index=True
-  )
+    st.dataframe(pd.DataFrame(tabla_display), use_container_width=True, hide_index=True)
 
 with tab_auditoria:
-  st.write("#### 🕵️‍♂️ Historial del Sistema")
-  st.markdown("Registro oficial guardado en Google Sheets.")
+    st.write("#### 🕵️‍♂️ Historial del Sistema")
+    st.markdown("Registro oficial guardado en la nube.")
 
-  try:
-    df_logs = conn.read(ttl=0).dropna(how="all")
-  except Exception:
-    df_logs = pd.DataFrame()
+    try:
+        df_logs = conn.read(ttl=0).dropna(how="all")
+    except Exception:
+        df_logs = pd.DataFrame()
 
-  if df_logs is not None and not df_logs.empty:
-    if st.session_state["usuario_logueado"] is not None:
-      st.markdown("---")
-      st.write("⚙️ **Panel de Modificaciones de Auditoría**")
-      col_sel, col_btn = st.columns([3, 1])
+    if df_logs is not None and not df_logs.empty:
+        if st.session_state["usuario_logueado"] is not None:
+            st.markdown("---")
+            st.write("⚙️ **Panel de Modificaciones de Auditoría**")
+            col_sel, col_btn = st.columns([3, 1])
 
-      with col_sel:
-        id_para_borrar = st.selectbox(
-            "Selecciona el ID de la novedad que deseas eliminar:",
-            df_logs["ID_Novedad"].tolist(),
+            with col_sel:
+                id_para_borrar = st.selectbox(
+                    "Selecciona el ID de la novedad que deseas eliminar:",
+                    df_logs["ID_Novedad"].tolist(),
+                )
+            with col_btn:
+                st.write(" ")
+                if st.button("❌ Eliminar Registro", type="secondary", use_container_width=True):
+                    eliminar_novedad_por_id(id_para_borrar)
+                    st.success(f"Novedad #{id_para_borrar} eliminada con éxito.")
+                    st.rerun()
+            st.markdown("---")
+
+        csv_bytes = df_logs.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Descargar Novedades (CSV)",
+            data=csv_bytes,
+            file_name="novedades_auditoria.csv",
+            mime="text/csv",
         )
-      with col_btn:
-        st.write(" ")
-        if st.button(
-            "❌ Eliminar Registro", type="secondary", use_container_width=True
-        ):
-          eliminar_novedad_por_id(id_para_borrar)
-          st.success(f"Novedad #{id_para_borrar} eliminada con éxito.")
-          st.rerun()
-      st.markdown("---")
 
-    csv_bytes = df_logs.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="📥 Descargar Novedades (CSV)",
-        data=csv_bytes,
-        file_name="novedades_auditoria.csv",
-        mime="text/csv",
-    )
-
-    st.dataframe(
-        df_logs.iloc[::-1], use_container_width=True, hide_index=True
-    )
-  else:
-    st.info("No hay novedades registradas en el sistema en este momento.")
+        st.dataframe(df_logs.iloc[::-1], use_container_width=True, hide_index=True)
+    else:
+        st.info("No hay novedades registradas en el sistema en este momento.")
