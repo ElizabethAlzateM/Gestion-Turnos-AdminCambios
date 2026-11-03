@@ -15,7 +15,7 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
-# 1. CONSTANTES Y CONFIGURACIÓN
+# 1. CONSTANTES Y CONFIGURACIÓN DE EQUIPO
 # ==========================================
 USUARIOS_INICIALES = [
     "Juan Camilo Ríos Rentería",
@@ -27,6 +27,12 @@ USUARIOS_INICIALES = [
     "Andrés Mauricio Vargas Osorio",
     "Cristian David Requeme Gallego",
 ]
+
+# Fechas límite de permanencia activa (Histórico hasta el retiro)
+FECHAS_RETIRO = {
+    "Brahian Andrés López Echeverri": datetime.date(2026, 9, 30),
+    "Andrés Mauricio Vargas Osorio": datetime.date(2026, 10, 31),
+}
 
 FECHA_INICIO = datetime.date(2026, 8, 21)
 VIERNES_FESTIVOS = {
@@ -42,15 +48,25 @@ VIERNES_FESTIVOS = {
 }
 
 MESES_ESPANOL = {
-    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
-    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
-    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+    1: "Enero",
+    2: "Febrero",
+    3: "Marzo",
+    4: "Abril",
+    5: "Mayo",
+    6: "Junio",
+    7: "Julio",
+    8: "Agosto",
+    9: "Septiembre",
+    10: "Octubre",
+    11: "Noviembre",
+    12: "Diciembre",
 }
 
 PASSWORD_ADMIN = "Camb1osAdm1n*2026"
 
-# Conector nativo de Google Sheets
+# Conector a Google Sheets mediante Secrets
 conn = st.connection("gsheets", type=GSheetsConnection)
+
 
 # ==========================================
 # 2. SISTEMA DE BASE DE DATOS (GOOGLE SHEETS)
@@ -144,8 +160,16 @@ def eliminar_novedad_por_id(id_eliminar):
 
 
 # ==========================================
-# 3. MOTOR LÓGICO DE CÁLCULO Y ROTACIÓN
+# 3. MOTOR LÓGICO Y CONTROL DE DISPONIBILIDAD
 # ==========================================
+def esta_activo(nombre, fecha):
+  """Verifica si un empleado pertenece al equipo activo en la fecha evaluada."""
+  if nombre in FECHAS_RETIRO:
+    if fecha > FECHAS_RETIRO[nombre]:
+      return False
+  return True
+
+
 def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
   situaciones_especiales = cargar_novedades_desde_gsheets()
   calendario = []
@@ -154,6 +178,8 @@ def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
   viernes_actual = fecha_base
 
   def esta_libre(nombre, fecha):
+    if not esta_activo(nombre, fecha):
+      return False
     if nombre in situaciones_especiales:
       for inicio, fin in situaciones_especiales[nombre]:
         if inicio <= fecha <= fin:
@@ -166,6 +192,7 @@ def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
     ).days // 7 + 1
     semana_str = f"Semana {num_semana}"
 
+    # 1. Manejo de festivos
     if viernes_actual in VIERNES_FESTIVOS:
       calendario.append({
           "Semana": semana_str,
@@ -180,17 +207,28 @@ def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
     usuario_asignado = None
     motivo_asignacion = "Turno Normal"
 
+    # 2. Asignación a pendientes en cola (eliminando inactivos)
     for u in list(cola_deudas):
+      if not esta_activo(u, viernes_actual):
+        cola_deudas.remove(u)
+        continue
       if esta_libre(u, viernes_actual):
         usuario_asignado = u
         cola_deudas.remove(u)
         motivo_asignacion = "Compensación de turno pendiente"
         break
 
+    # 3. Asignación por ruleta equitativa
     if usuario_asignado is None:
-      while True:
+      intentos = 0
+      max_intentos = len(USUARIOS_INICIALES) * 2
+      while intentos < max_intentos:
         candidato = USUARIOS_INICIALES[idx_ruleta]
         idx_ruleta = (idx_ruleta + 1) % len(USUARIOS_INICIALES)
+        intentos += 1
+
+        if not esta_activo(candidato, viernes_actual):
+          continue
 
         if esta_libre(candidato, viernes_actual):
           usuario_asignado = candidato
@@ -203,7 +241,7 @@ def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
         "Semana": semana_str,
         "Fecha_Obj": viernes_actual,
         "Fecha": formatear_fecha_espanol(viernes_actual),
-        "Usuario": usuario_asignado,
+        "Usuario": usuario_asignado if usuario_asignado else "Sin asignar",
         "Detalle": motivo_asignacion,
     })
     viernes_actual += datetime.timedelta(weeks=1)
@@ -212,7 +250,7 @@ def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
 
 
 # ==========================================
-# 4. INTERFAZ STREAMLIT Y ESTILOS
+# 4. INTERFAZ STREAMLIT Y ESTILOS VISUALES
 # ==========================================
 st.set_page_config(
     page_title="Rotación de Turnos - AdminCambios", layout="wide"
@@ -323,7 +361,7 @@ if st.session_state["usuario_logueado"] is not None:
       )
 
 st.sidebar.markdown("---")
-st.sidebar.caption("🚀 Desarrollado por **[Tu Nombre]** con asistencia de IA")
+st.sidebar.caption("🚀 Desarrollado para el equipo de **AdminCambios**")
 
 # --- CUERPO PRINCIPAL ---
 st.markdown(
@@ -410,7 +448,7 @@ with tab_proyeccion:
 
 with tab_auditoria:
   st.write("#### 🕵️‍♂️ Historial del Sistema")
-  st.markdown("Registro oficial guardado en la nube.")
+  st.markdown("Registro oficial guardado en Google Sheets.")
 
   try:
     df_logs = conn.read(ttl=0).dropna(how="all")
