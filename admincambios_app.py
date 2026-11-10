@@ -28,11 +28,14 @@ USUARIOS_INICIALES = [
     "Cristian David Requeme Gallego",
 ]
 
-# Fechas límite de permanencia activa (se conservan en el histórico hasta la fecha de retiro)
+# Fechas límite de permanencia activa
 FECHAS_RETIRO = {
     "Brahian Andrés López Echeverri": datetime.date(2026, 9, 30),
     "Andrés Mauricio Vargas Osorio": datetime.date(2026, 10, 31),
 }
+
+# Categorías para clasificar las novedades registradas
+TIPOS_NOVEDAD = ["Vacaciones", "Incapacidad", "Permiso", "Licencia"]
 
 FECHA_INICIO = datetime.date(2026, 8, 21)
 VIERNES_FESTIVOS = {
@@ -90,14 +93,14 @@ def cargar_novedades_desde_gsheets():
         return {}
 
 
-def registrar_novedad_en_gsheets(empleado, f_inicio, f_fin, administrador):
+def registrar_novedad_en_gsheets(empleado, f_inicio, f_fin, tipo_novedad, administrador):
     try:
         df = conn.read(ttl=0)
     except Exception:
-        df = pd.DataFrame(columns=["ID_Novedad", "Empleado", "Fecha_Inicio", "Fecha_Fin", "Creado_Por", "Fecha_Hora_Registro"])
+        df = pd.DataFrame(columns=["ID_Novedad", "Empleado", "Tipo_Novedad", "Fecha_Inicio", "Fecha_Fin", "Creado_Por", "Fecha_Hora_Registro"])
 
     if df is None or df.empty:
-        df = pd.DataFrame(columns=["ID_Novedad", "Empleado", "Fecha_Inicio", "Fecha_Fin", "Creado_Por", "Fecha_Hora_Registro"])
+        df = pd.DataFrame(columns=["ID_Novedad", "Empleado", "Tipo_Novedad", "Fecha_Inicio", "Fecha_Fin", "Creado_Por", "Fecha_Hora_Registro"])
         nuevo_id = 1
     else:
         df = df.dropna(how="all")
@@ -107,6 +110,7 @@ def registrar_novedad_en_gsheets(empleado, f_inicio, f_fin, administrador):
     nueva_fila = pd.DataFrame([{
         "ID_Novedad": nuevo_id,
         "Empleado": empleado,
+        "Tipo_Novedad": tipo_novedad,
         "Fecha_Inicio": f_inicio.strftime("%Y-%m-%d"),
         "Fecha_Fin": f_fin.strftime("%Y-%m-%d"),
         "Creado_Por": administrador,
@@ -181,7 +185,7 @@ def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
                 motivo_asignacion = "Compensación de turno pendiente"
                 break
 
-        # 3. Asignación por ruleta equitativa con limite seguro de iteración
+        # 3. Asignación por ruleta equitativa omitiendo inactivos
         if usuario_asignado is None:
             intentos = 0
             max_intentos = len(USUARIOS_INICIALES) * 2
@@ -279,6 +283,8 @@ else:
         st.sidebar.success("Sesión cerrada.")
         st.rerun()
 
+hoy_fecha = datetime.date.today()
+
 if st.session_state["usuario_logueado"] is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("📝 Registrar Novedad")
@@ -287,9 +293,12 @@ if st.session_state["usuario_logueado"] is not None:
         st.sidebar.success("✅ Novedad registrada")
         del st.session_state["msj_novedad_guardada"]
 
-    usuario_sel = st.sidebar.selectbox("Compañero:", USUARIOS_INICIALES)
-    fecha_inicio_sel = st.sidebar.date_input("Fecha Inicio Novedad:", datetime.date(2026, 8, 21))
-    fecha_fin_sel = st.sidebar.date_input("Fecha Fin Novedad:", datetime.date(2026, 8, 21))
+    usuarios_activos_desplegable = [u for u in USUARIOS_INICIALES if esta_activo(u, hoy_fecha)]
+
+    usuario_sel = st.sidebar.selectbox("Compañero:", usuarios_activos_desplegable)
+    tipo_novedad_sel = st.sidebar.selectbox("Tipo de Novedad:", TIPOS_NOVEDAD)
+    fecha_inicio_sel = st.sidebar.date_input("Fecha Inicio Novedad:", hoy_fecha)
+    fecha_fin_sel = st.sidebar.date_input("Fecha Fin Novedad:", hoy_fecha)
 
     if st.sidebar.button("💾 Guardar en Registro"):
         if fecha_inicio_sel <= fecha_fin_sel:
@@ -297,6 +306,7 @@ if st.session_state["usuario_logueado"] is not None:
                 usuario_sel,
                 fecha_inicio_sel,
                 fecha_fin_sel,
+                tipo_novedad_sel,
                 st.session_state["usuario_logueado"],
             )
             st.session_state["msj_novedad_guardada"] = True
@@ -314,14 +324,19 @@ st.markdown('<div class="page-sub">Plataforma para la planeación equitativa de 
 tab_proyeccion, tab_auditoria = st.tabs(["📅 Proyección de Calendario", "Bitácora de Auditorías"])
 
 with tab_proyeccion:
-    semanas = st.slider("Ajustar la cantidad de semanas a visualizar:", min_value=5, max_value=72, value=20)
+    col_slider, col_check = st.columns([2, 1])
+    with col_slider:
+        semanas = st.slider("Ajustar la cantidad de semanas a visualizar:", min_value=5, max_value=72, value=20)
+    with col_check:
+        st.write(" ")
+        mostrar_pasados = st.checkbox("📜 Mostrar semanas pasadas (desde Agosto 2026)", value=False)
 
-    hoy = datetime.date.today()
-    dias_hasta_viernes = (4 - hoy.weekday()) % 7
-    viernes_esta_semana = hoy + datetime.timedelta(days=dias_hasta_viernes)
+    dias_hasta_viernes = (4 - hoy_fecha.weekday()) % 7
+    viernes_esta_semana = hoy_fecha + datetime.timedelta(days=dias_hasta_viernes)
     semanas_transcurridas = max(0, (viernes_esta_semana - FECHA_INICIO).days // 7)
 
-    datos_calendario = generar_calendario_equitativo(FECHA_INICIO, max(semanas, semanas_transcurridas + 10))
+    total_semanas_a_calcular = semanas_transcurridas + semanas + 5
+    datos_calendario = generar_calendario_equitativo(FECHA_INICIO, total_semanas_a_calcular)
 
     idx_actual = semanas_transcurridas
     turnos_a_mostrar = datos_calendario[max(0, idx_actual - 1) : idx_actual + 3]
@@ -361,12 +376,14 @@ with tab_proyeccion:
     st.markdown(" ")
     st.write("#### 📊 Calendario de Disponibilidad Proyectado")
 
+    inicio_tabla = 0 if mostrar_pasados else semanas_transcurridas
+    fin_tabla = inicio_tabla + semanas
     tabla_display = [{
         "Fecha": r["Fecha"],
         "Semana": r["Semana"],
         "Usuario": r["Usuario"],
         "Detalle": r["Detalle"],
-    } for r in datos_calendario[:semanas]]
+    } for r in datos_calendario[inicio_tabla:fin_tabla]]
 
     st.dataframe(pd.DataFrame(tabla_display), use_container_width=True, hide_index=True)
 
