@@ -80,8 +80,9 @@ def cargar_novedades_desde_gsheets():
         for _, row in df.dropna(how="all").iterrows():
             try:
                 emp = str(row["Empleado"]).strip()
-                f_ini = datetime.datetime.strptime(str(row["Fecha_Inicio"]), "%Y-%m-%d").date()
-                f_fin = datetime.datetime.strptime(str(row["Fecha_Fin"]), "%Y-%m-%d").date()
+                # Conversión flexible compatible con cualquier formato de fecha
+                f_ini = pd.to_datetime(row["Fecha_Inicio"]).date()
+                f_fin = pd.to_datetime(row["Fecha_Fin"]).date()
 
                 if emp not in diccionario_novedades:
                     diccionario_novedades[emp] = []
