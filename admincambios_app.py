@@ -12,6 +12,7 @@ Original file is located at
 import datetime
 import pandas as pd
 import streamlit as st
+import unicodedata
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
@@ -63,26 +64,63 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 
 # ==========================================
-# 2. SISTEMA DE BASE DE DATOS (GOOGLE SHEETS)
+# 2. FUNCIONES AUXILIARES DE NORMALIZACIÓN
 # ==========================================
+def normalizar_texto(texto):
+    """Limpia tildes, espacios extra e insensibiliza mayúsculas/minúsculas."""
+    if not texto or pd.isna(texto):
+        return ""
+    txt = unicodedata.normalize('NFD', str(texto)).encode('ascii', 'ignore').decode("utf-8")
+    return txt.strip().lower()
+
+
+def obtener_columna_flexible(df, variantes_nombre):
+    """Busca una columna en el DataFrame ignorando mayúsculas y espacios."""
+    for col in df.columns:
+        if normalizar_texto(col) in [normalizar_texto(v) for v in variantes_nombre]:
+            return col
+    return None
+
+
 def formatear_fecha_espanol(fecha_obj):
     mes = MESES_ESPANOL[fecha_obj.month]
     return f"{fecha_obj.day:02d}-{mes}-{fecha_obj.year}"
 
 
+# ==========================================
+# 3. SISTEMA DE BASE DE DATOS (GOOGLE SHEETS)
+# ==========================================
 def cargar_novedades_desde_gsheets():
     try:
         df = conn.read(ttl=0)
         if df is None or df.empty:
             return {}
 
+        df = df.replace(r'^\s*$', None, regex=True).dropna(how="all")
+        df.columns = df.columns.str.strip()
+
+        col_emp = obtener_columna_flexible(df, ["Empleado", "Empleado "])
+        col_ini = obtener_columna_flexible(df, ["Fecha_Inicio", "Fecha Inicio", "FechaInicio"])
+        col_fin = obtener_columna_flexible(df, ["Fecha_Fin", "Fecha Fin", "FechaFin"])
+
+        if not col_emp or not col_ini or not col_fin:
+            return {}
+
         diccionario_novedades = {}
-        for _, row in df.dropna(how="all").iterrows():
+        for _, row in df.iterrows():
             try:
-                emp = str(row["Empleado"]).strip()
-                # Conversión flexible compatible con cualquier formato de fecha
-                f_ini = pd.to_datetime(row["Fecha_Inicio"]).date()
-                f_fin = pd.to_datetime(row["Fecha_Fin"]).date()
+                if pd.isna(row[col_emp]) or pd.isna(row[col_ini]) or pd.isna(row[col_fin]):
+                    continue
+
+                emp = str(row[col_emp]).strip()
+                f_ini_dt = pd.to_datetime(row[col_ini], errors="coerce")
+                f_fin_dt = pd.to_datetime(row[col_fin], errors="coerce")
+
+                if pd.isna(f_ini_dt) or pd.isna(f_fin_dt):
+                    continue
+
+                f_ini = f_ini_dt.date()
+                f_fin = f_fin_dt.date()
 
                 if emp not in diccionario_novedades:
                     diccionario_novedades[emp] = []
@@ -90,22 +128,31 @@ def cargar_novedades_desde_gsheets():
             except Exception:
                 continue
         return diccionario_novedades
-    except Exception:
+    except Exception as e:
+        st.sidebar.warning(f"⚠️ Nota al leer Google Sheets: {e}")
         return {}
 
 
 def registrar_novedad_en_gsheets(empleado, f_inicio, f_fin, tipo_novedad, administrador):
+    columnas_esperadas = ["ID_Novedad", "Empleado", "Tipo_Novedad", "Fecha_Inicio", "Fecha_Fin", "Creado_Por", "Fecha_Hora_Registro"]
     try:
         df = conn.read(ttl=0)
+        if df is None or df.empty:
+            df = pd.DataFrame(columns=columnas_esperadas)
+        else:
+            df = df.replace(r'^\s*$', None, regex=True).dropna(how="all")
+            df.columns = df.columns.str.strip()
     except Exception:
-        df = pd.DataFrame(columns=["ID_Novedad", "Empleado", "Tipo_Novedad", "Fecha_Inicio", "Fecha_Fin", "Creado_Por", "Fecha_Hora_Registro"])
+        df = pd.DataFrame(columns=columnas_esperadas)
 
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=["ID_Novedad", "Empleado", "Tipo_Novedad", "Fecha_Inicio", "Fecha_Fin", "Creado_Por", "Fecha_Hora_Registro"])
-        nuevo_id = 1
-    else:
-        df = df.dropna(how="all")
-        nuevo_id = int(df["ID_Novedad"].max() + 1) if not df.empty and "ID_Novedad" in df.columns else 1
+    nuevo_id = 1
+    col_id = obtener_columna_flexible(df, ["ID_Novedad", "ID Novedad", "ID"])
+    if not df.empty and col_id:
+        try:
+            max_val = pd.to_numeric(df[col_id], errors="coerce").max()
+            nuevo_id = int(max_val + 1) if pd.notna(max_val) else 1
+        except Exception:
+            nuevo_id = 1
 
     ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     nueva_fila = pd.DataFrame([{
@@ -119,18 +166,28 @@ def registrar_novedad_en_gsheets(empleado, f_inicio, f_fin, tipo_novedad, admini
     }])
 
     df_actualizado = pd.concat([df, nueva_fila], ignore_index=True)
-    conn.update(data=df_actualizado)
+    try:
+        conn.update(data=df_actualizado)
+        st.sidebar.success("✅ ¡Guardado en Google Sheets con éxito!")
+    except Exception as e:
+        st.sidebar.error(f"❌ Error al guardar en Google Sheets: {e}")
 
 
 def eliminar_novedad_por_id(id_eliminar):
-    df = conn.read(ttl=0)
-    if df is not None and not df.empty:
-        df = df[df["ID_Novedad"] != int(id_eliminar)]
-        conn.update(data=df)
+    try:
+        df = conn.read(ttl=0)
+        if df is not None and not df.empty:
+            df.columns = df.columns.str.strip()
+            col_id = obtener_columna_flexible(df, ["ID_Novedad", "ID Novedad", "ID"])
+            if col_id:
+                df = df[pd.to_numeric(df[col_id], errors="coerce") != int(id_eliminar)]
+                conn.update(data=df)
+    except Exception as e:
+        st.error(f"Error al eliminar registro: {e}")
 
 
 # ==========================================
-# 3. MOTOR LÓGICO DE CÁLCULO Y ROTACIÓN
+# 4. MOTOR LÓGICO DE CÁLCULO Y ROTACIÓN
 # ==========================================
 def esta_activo(nombre, fecha):
     """Verifica si un empleado pertenece al equipo activo en la fecha evaluada."""
@@ -150,10 +207,13 @@ def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
     def esta_libre(nombre, fecha):
         if not esta_activo(nombre, fecha):
             return False
-        if nombre in situaciones_especiales:
-            for inicio, fin in situaciones_especiales[nombre]:
-                if inicio <= fecha <= fin:
-                    return False
+
+        nombre_norm = normalizar_texto(nombre)
+        for emp_registrado, rangos in situaciones_especiales.items():
+            if normalizar_texto(emp_registrado) == nombre_norm:
+                for inicio, fin in rangos:
+                    if inicio <= fecha <= fin:
+                        return False
         return True
 
     for _ in range(semanas_a_calcular):
@@ -218,7 +278,7 @@ def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
 
 
 # ==========================================
-# 4. INTERFAZ STREAMLIT Y ESTILOS VISUALES
+# 5. INTERFAZ STREAMLIT Y ESTILOS VISUALES
 # ==========================================
 st.set_page_config(page_title="Rotación de Turnos - AdminCambios", layout="wide")
 
@@ -290,10 +350,6 @@ if st.session_state["usuario_logueado"] is not None:
     st.sidebar.markdown("---")
     st.sidebar.header("📝 Registrar Novedad")
 
-    if "msj_novedad_guardada" in st.session_state:
-        st.sidebar.success("✅ Novedad registrada")
-        del st.session_state["msj_novedad_guardada"]
-
     usuarios_activos_desplegable = [u for u in USUARIOS_INICIALES if esta_activo(u, hoy_fecha)]
 
     usuario_sel = st.sidebar.selectbox("Compañero:", usuarios_activos_desplegable)
@@ -310,7 +366,6 @@ if st.session_state["usuario_logueado"] is not None:
                 tipo_novedad_sel,
                 st.session_state["usuario_logueado"],
             )
-            st.session_state["msj_novedad_guardada"] = True
             st.rerun()
         else:
             st.sidebar.error("Error: La fecha de inicio no puede ser mayor a la de fin.")
@@ -393,20 +448,26 @@ with tab_auditoria:
     st.markdown("Registro oficial guardado en la nube.")
 
     try:
-        df_logs = conn.read(ttl=0).dropna(how="all")
-    except Exception:
+        df_logs = conn.read(ttl=0)
+        if df_logs is not None:
+            df_logs = df_logs.replace(r'^\s*$', None, regex=True).dropna(how="all")
+            df_logs.columns = df_logs.columns.str.strip()
+    except Exception as e:
+        st.error(f"⚠️ Error al conectar con Google Sheets: {e}")
         df_logs = pd.DataFrame()
 
     if df_logs is not None and not df_logs.empty:
-        if st.session_state["usuario_logueado"] is not None:
+        col_id_audit = obtener_columna_flexible(df_logs, ["ID_Novedad", "ID Novedad", "ID"])
+        if st.session_state["usuario_logueado"] is not None and col_id_audit:
             st.markdown("---")
             st.write("⚙️ **Panel de Modificaciones de Auditoría**")
             col_sel, col_btn = st.columns([3, 1])
 
             with col_sel:
+                ids_disponibles = df_logs[col_id_audit].dropna().tolist()
                 id_para_borrar = st.selectbox(
                     "Selecciona el ID de la novedad que deseas eliminar:",
-                    df_logs["ID_Novedad"].tolist(),
+                    ids_disponibles,
                 )
             with col_btn:
                 st.write(" ")
