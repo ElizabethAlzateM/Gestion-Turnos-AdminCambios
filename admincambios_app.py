@@ -197,7 +197,7 @@ def esta_activo(nombre, fecha):
     return True
 
 
-def generar_calendario_equitativo(fecha_base, semanas_a_calcular=52):
+def generar_calendario_equitativo(fecha_base, semanas_a_calcular=72):
     situaciones_especiales = cargar_novedades_desde_gsheets()
     calendario = []
     cola_deudas = []
@@ -380,20 +380,16 @@ st.markdown('<div class="page-sub">Plataforma para la planeación equitativa de 
 tab_proyeccion, tab_auditoria = st.tabs(["📅 Proyección de Calendario", "Bitácora de Auditorías"])
 
 with tab_proyeccion:
-    col_slider, col_check = st.columns([2, 1])
-    with col_slider:
-        semanas = st.slider("Ajustar la cantidad de semanas a visualizar:", min_value=5, max_value=72, value=20)
-    with col_check:
-        st.write(" ")
-        mostrar_pasados = st.checkbox("📜 Mostrar semanas pasadas (desde Agosto 2026)", value=False)
+    semanas = st.slider("Ajustar la cantidad de semanas a visualizar (desde inicio en Agosto 2026):", min_value=10, max_value=100, value=72)
 
     dias_hasta_viernes = (4 - hoy_fecha.weekday()) % 7
     viernes_esta_semana = hoy_fecha + datetime.timedelta(days=dias_hasta_viernes)
     semanas_transcurridas = max(0, (viernes_esta_semana - FECHA_INICIO).days // 7)
 
-    total_semanas_a_calcular = semanas_transcurridas + semanas + 5
-    datos_calendario = generar_calendario_equitativo(FECHA_INICIO, total_semanas_a_calcular)
+    # Generar calendario completo desde FECHA_INICIO (21 de Agosto de 2026)
+    datos_calendario = generar_calendario_equitativo(FECHA_INICIO, semanas)
 
+    # Tarjetas superiores dinámicas enfocadas en la semana en curso
     idx_actual = semanas_transcurridas
     turnos_a_mostrar = datos_calendario[max(0, idx_actual - 1) : idx_actual + 3]
 
@@ -432,14 +428,13 @@ with tab_proyeccion:
     st.markdown(" ")
     st.write("#### 📊 Calendario de Disponibilidad Proyectado")
 
-    inicio_tabla = 0 if mostrar_pasados else semanas_transcurridas
-    fin_tabla = inicio_tabla + semanas
+    # Muestra las 4 columnas estándar originales
     tabla_display = [{
         "Fecha": r["Fecha"],
         "Semana": r["Semana"],
         "Usuario": r["Usuario"],
         "Detalle": r["Detalle"],
-    } for r in datos_calendario[inicio_tabla:fin_tabla]]
+    } for r in datos_calendario[:semanas]]
 
     st.dataframe(pd.DataFrame(tabla_display), use_container_width=True, hide_index=True)
 
